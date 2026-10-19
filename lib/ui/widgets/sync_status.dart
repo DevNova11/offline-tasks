@@ -1,57 +1,67 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/task_repository.dart';
 import '../../sync/connectivity_service.dart';
 import '../../sync/sync_engine.dart';
+import '../theme.dart';
 
-/// App-bar button: shows online/offline/syncing at a glance; tap to sync now.
-class SyncStatusButton extends StatelessWidget {
-  const SyncStatusButton({super.key});
+/// Nav-bar status capsule: online / offline / syncing, plus pending count.
+/// Tap to sync now.
+class SyncStatusPill extends StatelessWidget {
+  const SyncStatusPill({super.key});
 
   @override
   Widget build(BuildContext context) {
     final sync = context.watch<SyncEngine>();
     final online = context.watch<ConnectivityService>().isOnline;
     final pending = context.select<TaskRepository, int>((r) => r.pendingCount);
-    final scheme = Theme.of(context).colorScheme;
 
     final (IconData icon, Color color, String label) = !online
-        ? (Icons.cloud_off, scheme.error, 'Offline')
+        ? (CupertinoIcons.wifi_slash, CupertinoColors.systemOrange, 'Offline')
         : switch (sync.phase) {
-            SyncPhase.syncing => (Icons.sync, scheme.primary, 'Syncing'),
-            SyncPhase.error => (Icons.sync_problem, scheme.error, 'Sync error'),
+            SyncPhase.syncing =>
+              (CupertinoIcons.arrow_2_circlepath, CupertinoColors.systemBlue, 'Syncing'),
+            SyncPhase.error => (CupertinoIcons.exclamationmark_circle,
+                CupertinoColors.systemRed, 'Retrying'),
             SyncPhase.waitingForAccount =>
-              (Icons.cloud_queue, scheme.outline, 'Connecting'),
+              (CupertinoIcons.cloud, CupertinoColors.systemGrey, 'Connecting'),
             _ => pending > 0
-                ? (Icons.cloud_upload_outlined, scheme.primary, 'Online')
-                : (Icons.cloud_done, Colors.green, 'Online'),
+                ? (CupertinoIcons.cloud_upload, CupertinoColors.systemBlue, 'Online')
+                : (CupertinoIcons.checkmark_alt_circle, CupertinoColors.systemGreen, 'Synced'),
           };
+    final c = resolve(context, color);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Tooltip(
-        message: online ? 'Sync now' : 'Offline: changes are saved on this device',
-        child: ActionChip(
-          avatar: sync.isSyncing
-              ? SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: color),
-                )
-              : Icon(icon, size: 18, color: color),
-          label: Text(pending > 0 ? '$label · $pending' : label),
-          onPressed: online
-              ? () => context.read<SyncEngine>().syncNow(force: true)
-              : null,
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      minimumSize: const Size(0, 0),
+      onPressed: online ? () => sync.syncNow(force: true) : null,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: c.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(100),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            sync.isSyncing
+                ? CupertinoActivityIndicator(radius: 6, color: c)
+                : Icon(icon, size: 15, color: c),
+            const SizedBox(width: 5),
+            Text(
+              pending > 0 ? '$label · $pending' : label,
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: c),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Banner under the app bar explaining offline / error states.
+/// Banner explaining offline / sync-error states. Empty when all is well.
 class ConnectivityBanner extends StatelessWidget {
   const ConnectivityBanner({super.key});
 
@@ -60,54 +70,70 @@ class ConnectivityBanner extends StatelessWidget {
     final conn = context.watch<ConnectivityService>();
     final sync = context.watch<SyncEngine>();
     final pending = context.select<TaskRepository, int>((r) => r.pendingCount);
-    final scheme = Theme.of(context).colorScheme;
 
-    Widget bar(Color bg, Color fg, IconData icon, String text, {Widget? action}) =>
-        Material(
-          color: bg,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-            child: Row(
-              children: [
-                Icon(icon, size: 18, color: fg),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: Text(text,
-                        style: TextStyle(color: fg, fontSize: 13))),
-                ?action,
-              ],
-            ),
+    Widget card(Color tint, IconData icon, String title, String text,
+            {String? action, VoidCallback? onAction}) =>
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+          decoration: BoxDecoration(
+            color: resolve(context, CupertinoColors.secondarySystemGroupedBackground),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(8)),
+                child: Icon(icon, size: 18, color: CupertinoColors.white),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(text, style: AppText.secondary(context)),
+                  ],
+                ),
+              ),
+              if (action != null)
+                CupertinoButton(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  onPressed: onAction,
+                  child: Text(action, style: const TextStyle(fontSize: 15)),
+                ),
+            ],
           ),
         );
 
     if (!conn.isOnline) {
-      final why = conn.forcedOffline ? 'Offline mode is on' : 'You are offline';
-      return bar(
-        scheme.tertiaryContainer,
-        scheme.onTertiaryContainer,
-        Icons.cloud_off,
+      return card(
+        CupertinoColors.systemOrange,
+        CupertinoIcons.wifi_slash,
+        conn.forcedOffline ? 'Offline Mode' : 'No Connection',
         pending == 0
-            ? '$why. Everything still works; changes are saved on this device.'
-            : '$why. $pending change(s) saved on this device will sync when you reconnect.',
-        action: conn.forcedOffline
-            ? TextButton(
-                onPressed: () => conn.setForcedOffline(false),
-                child: const Text('Go online'),
-              )
-            : null,
+            ? 'Everything still works. Changes are saved on this device.'
+            : '$pending change${pending == 1 ? '' : 's'} saved on this device. '
+                'They will sync when you reconnect.',
+        action: conn.forcedOffline ? 'Go Online' : null,
+        onAction: conn.forcedOffline ? () => conn.setForcedOffline(false) : null,
       );
     }
     if (sync.phase == SyncPhase.error) {
-      return bar(
-        scheme.errorContainer,
-        scheme.onErrorContainer,
-        Icons.sync_problem,
-        'Sync problem: ${sync.lastError ?? 'some changes could not be uploaded'}. '
-        'Will retry automatically.',
-        action: TextButton(
-          onPressed: () => sync.syncNow(force: true),
-          child: const Text('Retry'),
-        ),
+      return card(
+        CupertinoColors.systemRed,
+        CupertinoIcons.exclamationmark_circle,
+        'Sync Problem',
+        pending == 0
+            ? 'Could not reach the server. Retrying automatically.'
+            : 'Could not upload $pending change${pending == 1 ? '' : 's'} yet. '
+                'They are safe on this device and will retry automatically.',
+        action: 'Retry',
+        onAction: () => sync.syncNow(force: true),
       );
     }
     return const SizedBox.shrink();

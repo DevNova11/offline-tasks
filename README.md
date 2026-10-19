@@ -7,9 +7,21 @@ records.
 
 Built for **GDG Tech Wildcard: App Development, Task 1 (Offline-First Task Management App)**.
 
+<p>
+  <img src="docs/screenshots/01_tasks.png" width="200" alt="Task list">
+  <img src="docs/screenshots/02_task_details.png" width="200" alt="Task details">
+  <img src="docs/screenshots/05_offline.png" width="200" alt="Offline mode">
+  <img src="docs/screenshots/03_sync_activity.png" width="200" alt="Sync activity">
+</p>
+<p>
+  <img src="docs/screenshots/06_task_actions.png" width="200" alt="Task actions">
+  <img src="docs/screenshots/04_settings.png" width="200" alt="Settings">
+  <img src="docs/screenshots/07_tasks_dark.png" width="200" alt="Dark mode">
+</p>
+
 | | |
 |---|---|
-| Framework | Flutter (Dart 3), Material 3 |
+| Framework | Flutter (Dart 3) with an iOS-style (Cupertino) interface |
 | Local storage | Hive CE (on-device key-value database) |
 | Remote database | Cloud Firestore (its own offline cache is **disabled**, so the sync logic is this app's) |
 | Accounts | Firebase Auth: automatic guest account, plus email/password for multi-device |
@@ -19,8 +31,19 @@ Built for **GDG Tech Wildcard: App Development, Task 1 (Offline-First Task Manag
 
 ## Features
 
+### iOS-style interface
+Modelled on Apple's Reminders app and built entirely from Flutter's Cupertino widgets:
+- Large-title navigation bar and inset grouped lists.
+- Round completion buttons coloured by priority, plus `!!!` priority marks.
+- Swipe to delete, with an Undo toast. Long-press opens an action sheet.
+- Pull to sync, with the native iOS refresh spinner.
+- A live sync status capsule in the nav bar (Synced / Online · N / Offline · N / Retrying).
+- A sliding segmented control and filter capsules backed by action sheets.
+- A Reminders-style details page with an inline date-and-time picker and switches.
+- Automatic light and dark mode.
+
 ### Task management
-- Create, edit and delete tasks. Swipe to delete, with **Undo**.
+- Create, edit and delete tasks. Swipe left to delete, with **Undo**.
 - Mark tasks complete or pending.
 - Priorities (low / medium / high), deadlines (date + time), a **category** and any number of **tags**.
 - **Search** across title, notes, tags and category.
@@ -29,12 +52,12 @@ Built for **GDG Tech Wildcard: App Development, Task 1 (Offline-First Task Manag
 ### Offline and persistence
 - Every action works offline. Tasks are written to Hive *before* the UI updates.
 - Tasks and unsynced changes survive closing, killing or restarting the app.
-- An online/offline indicator in the app bar shows how many changes are waiting, plus a banner while offline.
-- A **"Work offline" switch** (Settings) pauses all networking, so you can demo offline mode without airplane mode.
+- A status capsule in the navigation bar shows online/offline and how many changes are waiting, plus a banner while offline.
+- A **"Work Offline" switch** (Settings) pauses all networking, so you can demo offline mode without airplane mode.
 
 ### Synchronization
 - A persistent **outbox queue**: each unsynced change is listed with its attempts and last error (*Sync activity* screen).
-- Automatic sync on startup, when the network returns, after each edit, when the app is resumed, every 30 s, and on demand (tap the status chip or pull to refresh).
+- Automatic sync on startup, when the network returns, after each edit, when the app is resumed, every 30 s, and on demand (tap the status capsule or pull to refresh).
 - **Retries with exponential backoff** (2 s, 4 s, 8 s … up to 5 min) for failed uploads.
 - **No duplicates**: ids are client-generated UUIDs and every upload carries an idempotency key (see below).
 - **Conflict handling**: a field-level three-way merge with deterministic last-writer-wins for real collisions.
@@ -44,7 +67,7 @@ Built for **GDG Tech Wildcard: App Development, Task 1 (Offline-First Task Manag
 ### Bonus features (all implemented)
 - ✅ **Deadline notifications**: 30 minutes before and at the deadline. Scheduled locally, so they work offline.
 - ✅ **Recurring tasks**: daily, weekly or monthly. Completing one creates the next occurrence.
-- ✅ **Drag-and-drop reordering** (*My order* sort). The order syncs too.
+- ✅ **Drag-and-drop reordering** (*Manual* sort). The order syncs too.
 - ✅ **Multi-device support**: create an account on one phone, sign in on another, and both stay in sync, with live updates while online.
 - ✅ **Sync history / activity log**: every upload, download, retry, conflict and recovery is recorded.
 
@@ -150,12 +173,15 @@ lib/
     merge.dart                  three-way field-level merge (pure function)
     connectivity_service.dart   network status + "work offline" switch
   services/                     auth (guest/email), deadline notifications
-  ui/                           home list, editor, sync activity, settings
+  ui/                           Cupertino screens: home list, details editor,
+                                sync activity, settings; widgets/ios.dart holds
+                                shared iOS pieces (toast, pills, sheets)
 test/
   merge_test.dart               conflict rules
   sync_engine_test.dart         offline queue, retry/backoff, lost replies,
                                 restart recovery, two-device conflicts,
                                 tombstones, recurring dedupe, account switch
+  screenshots_test.dart         renders docs/screenshots/*.png (opt-in)
 ```
 
 ---
@@ -180,7 +206,13 @@ The repo already contains a Firebase config (`lib/firebase_options.dart`,
 2. Run `flutterfire configure` in this folder.
 3. Deploy the security rules: `firebase deploy --only firestore:rules`.
 
-Run the tests with `flutter test`. Build a release APK with `flutter build apk --release`;
+Run the tests with `flutter test`. To regenerate the screenshots in `docs/screenshots/`
+(they render with Windows' Segoe UI font), run:
+
+```bash
+flutter test test/screenshots_test.dart --dart-define=SCREENSHOTS=true
+```
+ Build a release APK with `flutter build apk --release`;
 it is written to `build/app/outputs/flutter-apk/app-release.apk`.
 
 ---
@@ -190,30 +222,30 @@ it is written to `build/app/outputs/flutter-apk/app-release.apk`.
 Install the APK (from the GitHub Releases page) on an Android phone.
 
 **1. Offline basics**
-1. Open the app while online; the chip in the top-right says **Online**.
-2. Turn on airplane mode, or go to ⋮ → *Settings* → **Work offline**. The chip turns to
-   **Offline** and a banner appears.
+1. Open the app while online; the capsule in the top-right says **Synced**.
+2. Turn on airplane mode, or go to ⋯ → *Settings & Account* → **Work Offline**. The capsule
+   turns orange (**Offline**) and a banner appears.
 3. Create, edit, complete and delete a few tasks. Add priorities, deadlines, tags and a
-   category. Try search and the filter chips. Everything responds instantly.
-4. Each changed task shows a cloud-upload icon, and the chip shows the pending count.
+   category. Try search, the segmented control and the filter capsules. Everything responds instantly.
+4. Each changed task shows a cloud-upload icon, and the capsule shows the pending count.
 
 **2. Persistence and recovery**
 1. While still offline, swipe the app away from recents (kill it) and reopen it. All tasks
    and the pending count are still there.
 2. Go back online. The changes upload within seconds, the badges turn to ✓, and
-   ⋮ → *Sync activity* shows *"Resuming N unsynced change(s)…"* followed by the uploads.
+   ⋯ → *Sync Activity* shows *"Resuming N unsynced change(s)…"* followed by the uploads.
 
 **3. Conflict handling (one device)**
-1. Make sure a task is synced. Long-press it → **Simulate edit from another device**.
+1. Make sure a task is synced. Long-press it → **Simulate Edit from Another Device**.
    This changes the server copy (title, priority, and a `#remote` tag).
-2. Before the update arrives, or after turning **Work offline** on first, edit the same
+2. Before the update arrives, or after turning **Work Offline** on first, edit the same
    task locally, e.g. change its notes or due date.
 3. Go online. Both edits are merged, and *Sync activity* shows a **Merged/Conflict** entry.
    If you change the *title* locally too, the newer title wins and the log names the
    conflicting field.
 
 **4. Multi-device (two phones)**
-1. Phone A: ⋮ → *Settings* → **Create** an account (email + password). The guest
+1. Phone A: ⋯ → *Settings & Account* → **Create** an account (email + password). The guest
    tasks stay attached to it.
 2. Phone B: *Settings* → **Sign in to an existing account** with the same login.
 3. Edits on one phone appear on the other within a second or two. Put both phones
@@ -222,4 +254,4 @@ Install the APK (from the GitHub Releases page) on an Android phone.
 **5. Bonus features**
 - Set a deadline a few minutes ahead to receive the 30-min / due notification.
 - Set *Repeat* to daily, then complete the task; the next occurrence appears.
-- In *Sort → My order*, drag tasks by the ≡ handle.
+- With the sort capsule on *Manual*, drag tasks by the ≡ handle.

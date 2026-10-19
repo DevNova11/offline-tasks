@@ -1,4 +1,6 @@
-import 'package:flutter/material.dart';
+import 'dart:ui' show ImageFilter;
+
+import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
 import '../data/remote_store.dart';
@@ -11,6 +13,7 @@ import 'sync_activity_screen.dart';
 import 'task_editor_screen.dart';
 import 'task_filter.dart';
 import 'theme.dart';
+import 'widgets/ios.dart';
 import 'widgets/sync_status.dart';
 import 'widgets/task_tile.dart';
 
@@ -32,8 +35,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openEditor([Task? task]) => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => TaskEditorScreen(task: task)),
+        CupertinoPageRoute(
+          fullscreenDialog: task == null,
+          builder: (_) => TaskEditorScreen(task: task),
+        ),
       );
+
+  void _open(Widget screen) =>
+      Navigator.of(context).push(CupertinoPageRoute(builder: (_) => screen));
 
   @override
   Widget build(BuildContext context) {
@@ -45,116 +54,151 @@ class _HomeScreenState extends State<HomeScreen> {
     final pendingCount = all.where((t) => !t.completed).length;
     final doneCount = all.length - pendingCount;
     final canReorder = filter.sort == SortMode.manual && !filter.isFiltering;
+    final bottomInset = MediaQuery.of(context).padding.bottom;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tasks'),
-        actions: [
-          const SyncStatusButton(),
-          PopupMenuButton<String>(
-            onSelected: (v) => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => v == 'log'
-                  ? const SyncActivityScreen()
-                  : const SettingsScreen(),
-            )),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'log', child: Text('Sync activity')),
-              PopupMenuItem(value: 'settings', child: Text('Settings & account')),
-            ],
-          ),
-        ],
-      ),
-      body: Column(
+    return CupertinoPageScaffold(
+      child: Stack(
         children: [
-          const ConnectivityBanner(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: SearchBar(
-              controller: _search,
-              hintText: 'Search tasks, tags, categories',
-              leading: const Icon(Icons.search),
-              elevation: const WidgetStatePropertyAll(0),
-              trailing: [
-                if (filter.query.isNotEmpty)
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () {
-                      _search.clear();
-                      filter.query = '';
-                    },
-                  ),
-              ],
-              onChanged: (v) => filter.query = v,
-            ),
-          ),
-          _FilterBar(repo: repo, filter: filter),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
-            child: Row(
-              children: [
-                Text('$pendingCount pending · $doneCount done',
-                    style: Theme.of(context).textTheme.labelMedium),
-                const Spacer(),
-                if (canReorder && visible.length > 1)
-                  Text('Drag ≡ to reorder',
-                      style: Theme.of(context).textTheme.labelSmall),
-              ],
-            ),
-          ),
-          Expanded(
-            child: visible.isEmpty
-                ? _EmptyState(
+          CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics()),
+            slivers: [
+              CupertinoSliverNavigationBar(
+                largeTitle: const Text('Tasks'),
+                border: null,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SyncStatusPill(),
+                    CupertinoButton(
+                      padding: const EdgeInsets.only(left: 8),
+                      minimumSize: const Size(0, 0),
+                      onPressed: _showMenu,
+                      child: const Icon(CupertinoIcons.ellipsis_circle, size: 25),
+                    ),
+                  ],
+                ),
+              ),
+              CupertinoSliverRefreshControl(
+                onRefresh: () => context.read<SyncEngine>().syncNow(force: true),
+              ),
+              SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const ConnectivityBanner(),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                      child: CupertinoSearchTextField(
+                        controller: _search,
+                        placeholder: 'Search',
+                        onChanged: (v) => filter.query = v,
+                        onSuffixTap: () {
+                          _search.clear();
+                          filter.query = '';
+                        },
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: CupertinoSlidingSegmentedControl<StatusFilter>(
+                        groupValue: filter.status,
+                        onValueChanged: (v) => filter.status = v ?? StatusFilter.all,
+                        children: const {
+                          StatusFilter.all: Text('All'),
+                          StatusFilter.pending: Text('Pending'),
+                          StatusFilter.completed: Text('Completed'),
+                        },
+                      ),
+                    ),
+                    _FilterPills(repo: repo, filter: filter),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(32, 6, 32, 6),
+                      child: Row(
+                        children: [
+                          SectionHeader('$pendingCount pending · $doneCount completed'),
+                          const Spacer(),
+                          if (canReorder && visible.length > 1)
+                            Text('Hold ≡ to reorder',
+                                style: AppText.secondary(context, size: 12)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (visible.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _EmptyState(
                     filtered: all.isNotEmpty,
                     onCreate: () => _openEditor(),
                     onClear: () {
                       _search.clear();
                       filter.clear();
                     },
-                  )
-                : RefreshIndicator(
-                    onRefresh: () =>
-                        context.read<SyncEngine>().syncNow(force: true),
-                    child: canReorder
-                        ? _reorderableList(records)
-                        : ListView.builder(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.only(bottom: 88),
-                            itemCount: records.length,
-                            itemBuilder: (_, i) => _tile(records[i]),
-                          ),
                   ),
+                )
+              else if (canReorder)
+                _reorderableList(records)
+              else
+                SliverList.builder(
+                  itemCount: records.length,
+                  itemBuilder: (_, i) => _tile(records, i),
+                ),
+              SliverToBoxAdapter(child: SizedBox(height: 90 + bottomInset)),
+            ],
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _BottomBar(onNew: () => _openEditor()),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openEditor(),
-        icon: const Icon(Icons.add),
-        label: const Text('New task'),
       ),
     );
   }
 
-  Widget _tile(LocalRecord r, {Widget? handle}) => TaskTile(
-        key: ValueKey(r.task.id),
-        record: r,
-        onTap: () => _openEditor(r.task),
-        onLongPress: () => _showActions(r.task),
-        dragHandle: handle,
-      );
+  Widget _tile(List<LocalRecord> records, int i, {Widget? handle}) {
+    final r = records[i];
+    return TaskTile(
+      key: ValueKey(r.task.id),
+      record: r,
+      isFirst: i == 0,
+      isLast: i == records.length - 1,
+      onTap: () => _openEditor(r.task),
+      onLongPress: () => _showActions(r.task),
+      dragHandle: handle,
+    );
+  }
 
   Widget _reorderableList(List<LocalRecord> records) {
-    return ReorderableListView.builder(
-      buildDefaultDragHandles: false,
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: 88),
+    return SliverReorderableList(
       itemCount: records.length,
-      itemBuilder: (_, i) => _tile(
-        records[i],
+      proxyDecorator: (child, _, anim) => AnimatedBuilder(
+        animation: anim,
+        builder: (_, c) => DecoratedBox(
+          decoration: BoxDecoration(boxShadow: [
+            BoxShadow(
+              color: const Color(0x33000000),
+              blurRadius: 18 * anim.value,
+              offset: const Offset(0, 6),
+            ),
+          ]),
+          child: c,
+        ),
+        child: child,
+      ),
+      itemBuilder: (context, i) => _tile(
+        records,
+        i,
         handle: ReorderableDragStartListener(
           index: i,
-          child: const Padding(
-            padding: EdgeInsets.all(4),
-            child: Icon(Icons.drag_handle),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(4, 12, 4, 12),
+            child: Icon(CupertinoIcons.line_horizontal_3,
+                size: 20, color: resolve(context, CupertinoColors.systemGrey2)),
           ),
         ),
       ),
@@ -171,161 +215,220 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showActions(Task t) {
-    showModalBottomSheet<void>(
+  void _showMenu() {
+    final sync = context.read<SyncEngine>();
+    showCupertinoModalPopup<void>(
       context: context,
-      showDragHandle: true,
-      builder: (sheet) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text('Priority ${priorityLabel(t.priority)}'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Edit'),
-              onTap: () {
-                Navigator.pop(sheet);
-                _openEditor(t);
-              },
-            ),
-            ListTile(
-              leading: Icon(t.completed ? Icons.undo : Icons.check),
-              title: Text(t.completed ? 'Mark as pending' : 'Mark as complete'),
-              onTap: () {
-                Navigator.pop(sheet);
-                context.read<TaskRepository>().setCompleted(t, !t.completed);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.devices_other),
-              title: const Text('Simulate edit from another device'),
-              subtitle: const Text('Changes the server copy, for testing conflicts'),
-              onTap: () async {
-                Navigator.pop(sheet);
-                final messenger = ScaffoldMessenger.of(context);
-                try {
-                  await context.read<SyncEngine>().simulateRemoteEdit(t);
-                  messenger.showSnackBar(const SnackBar(
-                      content: Text('Server copy changed. It will arrive as a remote update.')));
-                } on RemoteUnavailable catch (e) {
-                  messenger.showSnackBar(SnackBar(content: Text(e.message)));
+      builder: (ctx) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              sync.syncNow(force: true);
+            },
+            child: const Text('Sync Now'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _open(const SyncActivityScreen());
+            },
+            child: const Text('Sync Activity'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _open(const SettingsScreen());
+            },
+            child: const Text('Settings & Account'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancel'),
+        ),
+      ),
+    );
+  }
+
+  void _showActions(Task t) {
+    final repo = context.read<TaskRepository>();
+    final sync = context.read<SyncEngine>();
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) => CupertinoActionSheet(
+        title: Text(t.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+        message: Text('${priorityLabel(t.priority)} priority'),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _openEditor(t);
+            },
+            child: const Text('Edit'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              repo.setCompleted(t, !t.completed);
+            },
+            child: Text(t.completed ? 'Mark as Pending' : 'Mark as Completed'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await sync.simulateRemoteEdit(t);
+                if (mounted) {
+                  showToast(context,
+                      'Server copy changed. It will arrive as a remote update.');
                 }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('Delete'),
-              onTap: () {
-                Navigator.pop(sheet);
-                deleteWithUndo(context, t);
-              },
-            ),
-          ],
+              } on RemoteUnavailable catch (e) {
+                if (mounted) showToast(context, e.message);
+              }
+            },
+            child: const Text('Simulate Edit from Another Device'),
+          ),
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () {
+              Navigator.pop(ctx);
+              deleteWithUndo(context, t);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancel'),
         ),
       ),
     );
   }
 }
 
-class _FilterBar extends StatelessWidget {
-  const _FilterBar({required this.repo, required this.filter});
+class _FilterPills extends StatelessWidget {
+  const _FilterPills({required this.repo, required this.filter});
   final TaskRepository repo;
   final TaskFilter filter;
+
+  static String sortLabel(SortMode s) => switch (s) {
+        SortMode.manual => 'Manual',
+        SortMode.dueDate => 'Due Date',
+        SortMode.priority => 'Priority',
+        SortMode.created => 'Newest',
+      };
 
   @override
   Widget build(BuildContext context) {
     final tags = repo.allTags.toList()..sort();
     final categories = repo.allCategories.toList()..sort();
 
-    Widget menuChip<T>({
-      required String label,
-      required IconData icon,
-      required T? value,
-      required List<T> options,
-      required String Function(T) name,
-      required void Function(T?) onSelect,
-    }) {
-      return Padding(
-        padding: const EdgeInsets.only(right: 6),
-        child: PopupMenuButton<Object>(
-          onSelected: (v) => onSelect(v is T ? v as T : null),
-          itemBuilder: (_) => [
-            PopupMenuItem(value: '_any', child: Text('Any $label'.toLowerCase())),
-            for (final o in options)
-              CheckedPopupMenuItem(value: o, checked: o == value, child: Text(name(o))),
-          ],
-          child: Chip(
-            avatar: Icon(icon, size: 16),
-            label: Text(value == null ? label : name(value)),
-            backgroundColor: value == null
-                ? null
-                : Theme.of(context).colorScheme.secondaryContainer,
-          ),
-        ),
+    Future<void> pick<T>(String title, List<T> options, T? current,
+        String Function(T) label, void Function(T?) set) async {
+      final r = await pickFromSheetWithClear<T>(
+        context,
+        title: title,
+        options: options,
+        label: label,
+        selected: current,
+        clearLabel: 'Any',
       );
+      if (r != null) set(r.value);
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          for (final s in StatusFilter.values)
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: ChoiceChip(
-                label: Text(switch (s) {
-                  StatusFilter.all => 'All',
-                  StatusFilter.pending => 'Pending',
-                  StatusFilter.completed => 'Done',
-                }),
-                selected: filter.status == s,
-                onSelected: (_) => filter.status = s,
-              ),
-            ),
-          menuChip<Priority>(
-            label: 'Priority',
-            icon: Icons.flag_outlined,
-            value: filter.priority,
-            options: Priority.values.reversed.toList(),
-            name: priorityLabel,
-            onSelect: (v) => filter.priority = v,
-          ),
-          if (categories.isNotEmpty || filter.category != null)
-            menuChip<String>(
-              label: 'Category',
-              icon: Icons.folder_outlined,
-              value: filter.category,
-              options: categories,
-              name: (c) => c,
-              onSelect: (v) => filter.category = v,
-            ),
-          if (tags.isNotEmpty || filter.tag != null)
-            menuChip<String>(
-              label: 'Tag',
-              icon: Icons.sell_outlined,
-              value: filter.tag,
-              options: tags,
-              name: (t) => '#$t',
-              onSelect: (v) => filter.tag = v,
-            ),
-          menuChip<SortMode>(
-            label: 'Sort',
-            icon: Icons.sort,
-            value: filter.sort,
+    final pills = <Widget>[
+      Pill(
+        icon: CupertinoIcons.arrow_up_arrow_down,
+        label: sortLabel(filter.sort),
+        onTap: () async {
+          final s = await pickFromSheet<SortMode>(
+            context,
+            title: 'Sort By',
             options: SortMode.values,
-            name: (s) => switch (s) {
-              SortMode.manual => 'My order',
-              SortMode.dueDate => 'Due date',
-              SortMode.priority => 'Priority',
-              SortMode.created => 'Newest',
-            },
-            onSelect: (v) => filter.sort = v ?? SortMode.manual,
+            label: sortLabel,
+            selected: filter.sort,
+          );
+          if (s != null) filter.sort = s;
+        },
+      ),
+      Pill(
+        icon: CupertinoIcons.flag,
+        label: filter.priority == null ? 'Priority' : priorityLabel(filter.priority!),
+        selected: filter.priority != null,
+        color: filter.priority == null ? null : priorityColor(filter.priority!),
+        onTap: () => pick<Priority>('Priority', Priority.values.reversed.toList(),
+            filter.priority, priorityLabel, (v) => filter.priority = v),
+      ),
+      if (categories.isNotEmpty || filter.category != null)
+        Pill(
+          icon: CupertinoIcons.folder,
+          label: filter.category ?? 'Category',
+          selected: filter.category != null,
+          onTap: () => pick<String>('Category', categories, filter.category,
+              (c) => c, (v) => filter.category = v),
+        ),
+      if (tags.isNotEmpty || filter.tag != null)
+        Pill(
+          icon: CupertinoIcons.tag,
+          label: filter.tag == null ? 'Tag' : '#${filter.tag}',
+          selected: filter.tag != null,
+          onTap: () => pick<String>(
+              'Tag', tags, filter.tag, (t) => '#$t', (v) => filter.tag = v),
+        ),
+    ];
+
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+        itemCount: pills.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (_, i) => pills[i],
+      ),
+    );
+  }
+}
+
+/// Translucent bottom toolbar with the Reminders-style "New Task" button.
+class _BottomBar extends StatelessWidget {
+  const _BottomBar({required this.onNew});
+  final VoidCallback onNew;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).padding.bottom;
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          padding: EdgeInsets.fromLTRB(8, 4, 8, bottom + 4),
+          decoration: BoxDecoration(
+            color: resolve(context, CupertinoColors.systemGroupedBackground)
+                .withValues(alpha: 0.85),
+            border: Border(
+              top: BorderSide(
+                  color: resolve(context, CupertinoColors.separator), width: 0.5),
+            ),
           ),
-        ],
+          child: Row(
+            children: [
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                onPressed: onNew,
+                child: const Row(
+                  children: [
+                    Icon(CupertinoIcons.add_circled_solid, size: 26),
+                    SizedBox(width: 8),
+                    Text('New Task',
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -344,37 +447,38 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(filtered ? Icons.filter_alt_off_outlined : Icons.task_alt,
-                size: 64, color: theme.colorScheme.outline),
-            const SizedBox(height: 16),
-            Text(filtered ? 'No tasks match' : 'No tasks yet',
-                style: theme.textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              filtered
-                  ? 'Try a different search or clear the filters.'
-                  : 'Add your first task. It works offline too: '
-                      'everything is saved on this device and synced when you are online.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(40, 40, 40, 120),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            filtered ? CupertinoIcons.search : CupertinoIcons.checkmark_circle,
+            size: 56,
+            color: resolve(context, CupertinoColors.systemGrey3),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            filtered ? 'No Results' : 'No Tasks',
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
             filtered
-                ? OutlinedButton(onPressed: onClear, child: const Text('Clear filters'))
-                : FilledButton.icon(
-                    onPressed: onCreate,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add a task'),
-                  ),
-          ],
-        ),
+                ? 'Try a different search or clear the filters.'
+                : 'Tasks you add appear here. Everything works offline and syncs '
+                    'when you are online.',
+            textAlign: TextAlign.center,
+            style: AppText.secondary(context, size: 15),
+          ),
+          const SizedBox(height: 18),
+          filtered
+              ? CupertinoButton(onPressed: onClear, child: const Text('Clear Filters'))
+              : CupertinoButton.filled(
+                  onPressed: onCreate,
+                  child: const Text('Add a Task'),
+                ),
+        ],
       ),
     );
   }

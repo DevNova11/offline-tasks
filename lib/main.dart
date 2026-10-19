@@ -1,7 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show DefaultMaterialLocalizations;
 import 'package:hive_ce_flutter/hive_ce_flutter.dart';
 import 'package:provider/provider.dart';
 
@@ -113,28 +114,30 @@ class _BootstrapState extends State<Bootstrap> {
       future: _future,
       builder: (context, snap) {
         if (snap.hasData) return OfflineTasksApp(services: snap.data!);
-        return MaterialApp(
+        return CupertinoApp(
           debugShowCheckedModeBanner: false,
-          theme: AppTheme.light,
-          darkTheme: AppTheme.dark,
-          home: Scaffold(
-            body: Center(
+          theme: AppTheme.cupertino,
+          localizationsDelegates: _localizations,
+          home: CupertinoPageScaffold(
+            child: Center(
               child: snap.hasError
                   ? Padding(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(32),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.error_outline, size: 48),
+                          const Icon(CupertinoIcons.exclamationmark_triangle,
+                              size: 48, color: CupertinoColors.systemRed),
                           const SizedBox(height: 12),
-                          const Text('Could not open local storage'),
+                          const Text('Could Not Open Your Tasks',
+                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
                           const SizedBox(height: 8),
                           Text('${snap.error}', textAlign: TextAlign.center),
                           const SizedBox(height: 16),
-                          FilledButton(
+                          CupertinoButton.filled(
                             onPressed: () =>
                                 setState(() => _future = AppServices.create()),
-                            child: const Text('Try again'),
+                            child: const Text('Try Again'),
                           ),
                         ],
                       ),
@@ -142,8 +145,8 @@ class _BootstrapState extends State<Bootstrap> {
                   : const Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 16),
+                        CupertinoActivityIndicator(radius: 14),
+                        SizedBox(height: 14),
                         Text('Loading your tasks…'),
                       ],
                     ),
@@ -154,6 +157,14 @@ class _BootstrapState extends State<Bootstrap> {
     );
   }
 }
+
+/// Cupertino widgets need only Cupertino strings; the Material ones cover the
+/// few framework widgets (e.g. text selection) that look them up.
+const _localizations = <LocalizationsDelegate<dynamic>>[
+  DefaultMaterialLocalizations.delegate,
+  DefaultCupertinoLocalizations.delegate,
+  DefaultWidgetsLocalizations.delegate,
+];
 
 class OfflineTasksApp extends StatefulWidget {
   const OfflineTasksApp({super.key, required this.services});
@@ -195,12 +206,12 @@ class _OfflineTasksAppState extends State<OfflineTasksApp>
         ChangeNotifierProvider.value(value: s.sync),
         ChangeNotifierProvider.value(value: s.filter),
       ],
-      child: MaterialApp(
+      child: const CupertinoApp(
         title: 'Offline Tasks',
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
-        home: const HomeScreen(),
+        theme: AppTheme.cupertino,
+        localizationsDelegates: _localizations,
+        home: HomeScreen(),
       ),
     );
   }

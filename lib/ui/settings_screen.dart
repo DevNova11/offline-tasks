@@ -1,9 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
 import '../data/task_repository.dart';
 import '../services/auth_service.dart';
 import '../sync/connectivity_service.dart';
+import 'theme.dart';
+import 'widgets/ios.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -13,77 +15,145 @@ class SettingsScreen extends StatelessWidget {
     final auth = context.watch<AuthService>();
     final conn = context.watch<ConnectivityService>();
     final deviceId = context.read<TaskRepository>().deviceId;
+    final secondary = AppText.secondary(context);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings & account')),
-      body: ListView(
-        children: [
-          const _Section('Account'),
-          if (auth.user == null)
-            const ListTile(
-              leading: Icon(Icons.cloud_queue),
-              title: Text('Not connected yet'),
-              subtitle: Text('Your tasks are saved on this device. A sync account '
-                  'is created automatically the first time you are online.'),
-            )
-          else if (auth.isAnonymous)
-            ListTile(
-              leading: const Icon(Icons.person_outline),
-              title: const Text('Guest account (this device)'),
-              subtitle: const Text('Create an account to sync the same tasks '
-                  'across several devices.'),
-              trailing: FilledButton.tonal(
-                onPressed: () => _showAuthDialog(context, register: true),
-                child: const Text('Create'),
+    final (String accountTitle, String accountSubtitle, IconData accountIcon) =
+        auth.uid == null
+            ? ('Not Connected Yet', 'An account is created the first time you are online.',
+                CupertinoIcons.cloud)
+            : auth.isAnonymous
+                ? ('Guest', 'Synced from this device only', CupertinoIcons.person)
+                : (auth.email ?? 'Signed In', 'Syncing across your devices',
+                    CupertinoIcons.person_crop_circle_fill_badge_checkmark);
+
+    return CupertinoPageScaffold(
+      navigationBar: const CupertinoNavigationBar(
+        middle: Text('Settings'),
+        previousPageTitle: 'Tasks',
+      ),
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 32),
+          children: [
+            CupertinoListSection.insetGrouped(
+              header: const SectionHeader('Account'),
+              footer: Text(
+                auth.isAnonymous
+                    ? 'Create an account to use the same tasks on several devices. '
+                        'Your current tasks move with you.'
+                    : 'Sign in with this account on another device to see the same tasks.',
+                style: secondary,
               ),
-            )
-          else
-            ListTile(
-              leading: const Icon(Icons.verified_user_outlined),
-              title: Text(auth.email ?? 'Signed in'),
-              subtitle: const Text('Sign in with this account on other devices '
-                  'to see the same tasks.'),
+              children: [
+                CupertinoListTile(
+                  leadingSize: 44,
+                  leading: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: resolve(context, CupertinoColors.systemGrey4),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(accountIcon, color: CupertinoColors.white, size: 24),
+                  ),
+                  title: Text(accountTitle,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(accountSubtitle),
+                ),
+                if (auth.uid != null && auth.isAnonymous)
+                  CupertinoListTile(
+                    title: Text('Create Account',
+                        style: TextStyle(color: resolve(context, CupertinoColors.systemBlue))),
+                    onTap: () => _showAuth(context, register: true),
+                  ),
+                if (auth.uid == null || auth.isAnonymous)
+                  CupertinoListTile(
+                    title: Text('Sign In to Existing Account',
+                        style: TextStyle(color: resolve(context, CupertinoColors.systemBlue))),
+                    onTap: () => _showAuth(context, register: false),
+                  )
+                else
+                  CupertinoListTile(
+                    title: Text('Sign Out',
+                        style: TextStyle(color: resolve(context, CupertinoColors.systemRed))),
+                    onTap: () => _confirmSignOut(context, auth),
+                  ),
+              ],
             ),
-          if (auth.user == null || auth.isAnonymous)
-            ListTile(
-              leading: const Icon(Icons.login),
-              title: const Text('Sign in to an existing account'),
-              subtitle: const Text('Tasks on this device are merged into it.'),
-              onTap: () => _showAuthDialog(context, register: false),
-            )
-          else
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('Sign out'),
-              subtitle: const Text('Tasks stay on this device.'),
-              onTap: auth.signOut,
+            CupertinoListSection.insetGrouped(
+              header: const SectionHeader('Connectivity'),
+              footer: Text(
+                'Work Offline pauses all syncing as if there were no network, '
+                'which is handy for testing offline behaviour.',
+                style: secondary,
+              ),
+              children: [
+                CupertinoListTile(
+                  leading: _box(context, CupertinoIcons.airplane, CupertinoColors.systemOrange),
+                  title: const Text('Work Offline'),
+                  trailing: CupertinoSwitch(
+                    value: conn.forcedOffline,
+                    onChanged: conn.setForcedOffline,
+                  ),
+                ),
+                CupertinoListTile(
+                  leading: _box(context, CupertinoIcons.wifi, CupertinoColors.systemBlue),
+                  title: const Text('Network'),
+                  additionalInfo: Text(conn.hasNetwork ? 'Available' : 'None'),
+                ),
+              ],
             ),
-          const _Section('Connectivity'),
-          SwitchListTile(
-            secondary: const Icon(Icons.airplanemode_active),
-            title: const Text('Work offline'),
-            subtitle: const Text('Pause all syncing, as if there were no network. '
-                'Handy for testing offline behaviour.'),
-            value: conn.forcedOffline,
-            onChanged: conn.setForcedOffline,
-          ),
-          ListTile(
-            leading: Icon(conn.hasNetwork ? Icons.wifi : Icons.wifi_off),
-            title: Text(conn.hasNetwork ? 'Network available' : 'No network'),
-          ),
-          const _Section('About'),
-          ListTile(
-            leading: const Icon(Icons.phone_android),
-            title: const Text('Device id'),
-            subtitle: Text(deviceId),
-          ),
-        ],
+            CupertinoListSection.insetGrouped(
+              header: const SectionHeader('About'),
+              children: [
+                CupertinoListTile(
+                  leading: _box(context, CupertinoIcons.device_phone_portrait,
+                      CupertinoColors.systemGrey),
+                  title: const Text('Device ID'),
+                  additionalInfo: Text(deviceId),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _showAuthDialog(BuildContext context, {required bool register}) {
-    return showDialog<void>(
+  Widget _box(BuildContext context, IconData icon, Color color) => Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: resolve(context, color),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Icon(icon, size: 17, color: CupertinoColors.white),
+      );
+
+  Future<void> _confirmSignOut(BuildContext context, AuthService auth) async {
+    final ok = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: const Text('Sign Out?'),
+        content: const Text('Your tasks stay on this device.'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await auth.signOut();
+  }
+
+  Future<void> _showAuth(BuildContext context, {required bool register}) {
+    return showCupertinoDialog<void>(
       context: context,
       builder: (_) => _AuthDialog(register: register, auth: context.read<AuthService>()),
     );
@@ -134,54 +204,49 @@ class _AuthDialogState extends State<_AuthDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.register ? 'Create account' : 'Sign in'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _email,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(labelText: 'Email'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _password,
-            obscureText: true,
-            decoration: const InputDecoration(labelText: 'Password'),
-            onSubmitted: (_) => _submit(),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+    return CupertinoAlertDialog(
+      title: Text(widget.register ? 'Create Account' : 'Sign In'),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Column(
+          children: [
+            CupertinoTextField(
+              controller: _email,
+              placeholder: 'Email',
+              keyboardType: TextInputType.emailAddress,
+              autocorrect: false,
+            ),
+            const SizedBox(height: 8),
+            CupertinoTextField(
+              controller: _password,
+              placeholder: 'Password',
+              obscureText: true,
+              onSubmitted: (_) => _submit(),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(_error!,
+                  style: TextStyle(
+                      color: resolve(context, CupertinoColors.systemRed), fontSize: 13)),
+            ],
+            if (_busy) ...[
+              const SizedBox(height: 10),
+              const CupertinoActivityIndicator(),
+            ],
           ],
-        ],
+        ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
+        CupertinoDialogAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        CupertinoDialogAction(
+          isDefaultAction: true,
           onPressed: _busy ? null : _submit,
-          child: _busy
-              ? const SizedBox(
-                  width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-              : Text(widget.register ? 'Create' : 'Sign in'),
+          child: Text(widget.register ? 'Create' : 'Sign In'),
         ),
       ],
     );
   }
-}
-
-class _Section extends StatelessWidget {
-  const _Section(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-        child: Text(text,
-            style: Theme.of(context)
-                .textTheme
-                .titleSmall
-                ?.copyWith(color: Theme.of(context).colorScheme.primary)),
-      );
 }

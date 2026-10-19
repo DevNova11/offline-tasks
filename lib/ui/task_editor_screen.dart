@@ -1,10 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../data/task_repository.dart';
 import '../models/task.dart';
 import 'theme.dart';
+import 'widgets/ios.dart';
 import 'widgets/task_tile.dart';
 
 class TaskEditorScreen extends StatefulWidget {
@@ -18,19 +19,27 @@ class TaskEditorScreen extends StatefulWidget {
 }
 
 class _TaskEditorScreenState extends State<TaskEditorScreen> {
-  final _form = GlobalKey<FormState>();
-  late final _title = TextEditingController(text: widget.task?.title);
-  late final _description = TextEditingController(text: widget.task?.description);
-  late final _category = TextEditingController(text: widget.task?.category);
+  late final _title = TextEditingController(text: widget.task?.title)
+    ..addListener(_rebuild);
+  late final _description = TextEditingController(text: widget.task?.description)
+    ..addListener(_rebuild);
+  late final _category = TextEditingController(text: widget.task?.category)
+    ..addListener(_rebuild);
   final _tagInput = TextEditingController();
 
   late Priority _priority = widget.task?.priority ?? Priority.medium;
   late DateTime? _dueAt = widget.task?.dueAt;
   late List<String> _tags = [...?widget.task?.tags];
   late Recurrence _recurrence = widget.task?.recurrence ?? Recurrence.none;
+  bool _showPicker = false;
   bool _saving = false;
 
   bool get _isNew => widget.task == null;
+  bool get _canSave => _title.text.trim().isNotEmpty && !_saving;
+  String? get _categoryValue =>
+      _category.text.trim().isEmpty ? null : _category.text.trim();
+
+  void _rebuild() => setState(() {});
 
   @override
   void dispose() {
@@ -50,16 +59,16 @@ class _TaskEditorScreenState extends State<TaskEditorScreen> {
         _description.text.trim() != o.description ||
         _priority != o.priority ||
         _dueAt != o.dueAt ||
-        (_category.text.trim().isEmpty ? null : _category.text.trim()) != o.category ||
+        _categoryValue != o.category ||
         _tags.join(',') != o.tags.join(',') ||
         _recurrence != o.recurrence;
   }
 
   Future<void> _save() async {
-    if (!_form.currentState!.validate()) return;
+    if (!_canSave) return;
     setState(() => _saving = true);
     final repo = context.read<TaskRepository>();
-    final category = _category.text.trim().isEmpty ? null : _category.text.trim();
+    final category = _categoryValue;
 
     if (_isNew) {
       await repo.create(
@@ -91,50 +100,53 @@ class _TaskEditorScreenState extends State<TaskEditorScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  Future<void> _pickDue() async {
-    final now = DateTime.now();
-    final initial = _dueAt ?? DateTime(now.year, now.month, now.day, now.hour + 1);
-    final date = await showDatePicker(
+  Future<void> _close() async {
+    if (!_dirty) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final nav = Navigator.of(context);
+    final discard = await showCupertinoModalPopup<bool>(
       context: context,
-      initialDate: initial,
-      firstDate: DateTime(now.year - 1),
-      lastDate: DateTime(now.year + 5),
+      builder: (ctx) => CupertinoActionSheet(
+        message: const Text('Are you sure you want to discard your changes?'),
+        actions: [
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Discard Changes'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Keep Editing'),
+        ),
+      ),
     );
-    if (date == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-    );
-    if (!mounted) return;
-    final t = time ?? const TimeOfDay(hour: 9, minute: 0);
-    setState(() => _dueAt = DateTime(date.year, date.month, date.day, t.hour, t.minute));
+    if (discard == true) nav.pop();
+  }
+
+  void _toggleDate(bool on) {
+    setState(() {
+      if (on) {
+        final now = DateTime.now();
+        _dueAt ??= DateTime(now.year, now.month, now.day, now.hour + 1);
+        _showPicker = true;
+      } else {
+        _dueAt = null;
+        _showPicker = false;
+      }
+    });
   }
 
   void _addTag(String raw) {
     final tag = raw.trim().replaceAll('#', '').replaceAll(' ', '-').toLowerCase();
+    _tagInput.clear();
     if (tag.isEmpty || _tags.contains(tag)) {
-      _tagInput.clear();
+      setState(() {});
       return;
     }
-    setState(() {
-      _tags = [..._tags, tag];
-      _tagInput.clear();
-    });
-  }
-
-  Future<bool> _confirmDiscard() async {
-    if (!_dirty) return true;
-    final r = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Discard changes?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Keep editing')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Discard')),
-        ],
-      ),
-    );
-    return r ?? false;
+    setState(() => _tags = [..._tags, tag]);
   }
 
   @override
@@ -144,181 +156,315 @@ class _TaskEditorScreenState extends State<TaskEditorScreen> {
     final changedElsewhere = latest != null &&
         !latest.sameContentAs(widget.task!) &&
         latest.lastModifiedBy != repo.deviceId;
-    final categories = repo.allCategories.toList()..sort();
+    final categories = repo.allCategories
+        .where((c) => c != _categoryValue)
+        .toList()
+      ..sort();
     final suggestedTags = repo.allTags.where((t) => !_tags.contains(t)).toList()..sort();
+    final blue = resolve(context, CupertinoColors.systemBlue);
 
     return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) return;
-        final nav = Navigator.of(context);
-        if (await _confirmDiscard()) nav.pop();
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _close();
       },
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(_isNew ? 'New task' : 'Edit task'),
-          actions: [
-            if (!_isNew)
-              IconButton(
-                tooltip: 'Delete',
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  deleteWithUndo(context, widget.task!);
-                },
-              ),
-            TextButton(
-              onPressed: _saving ? null : _save,
-              child: const Text('Save'),
-            ),
-          ],
+      child: CupertinoPageScaffold(
+        navigationBar: CupertinoNavigationBar(
+          leading: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: _close,
+            child: const Text('Cancel'),
+          ),
+          middle: Text(_isNew ? 'New Task' : 'Details'),
+          trailing: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: _canSave ? _save : null,
+            child: Text(_isNew ? 'Add' : 'Done',
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
         ),
-        body: Form(
-          key: _form,
+        child: SafeArea(
+          bottom: false,
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.only(bottom: 40),
             children: [
               if (changedElsewhere)
-                Card(
-                  color: Theme.of(context).colorScheme.secondaryContainer,
-                  child: const ListTile(
-                    leading: Icon(Icons.sync),
-                    title: Text('Updated from another device'),
-                    subtitle: Text('Only the fields you change here will be saved; '
-                        'the other updates are kept.'),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: blue.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(CupertinoIcons.arrow_2_circlepath, color: blue, size: 20),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Updated from another device. Only the fields you change '
+                            'here will be saved; the other updates are kept.',
+                            style: TextStyle(fontSize: 14),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              TextFormField(
-                controller: _title,
-                autofocus: _isNew,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(labelText: 'Title'),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Give the task a title' : null,
+
+              // Title + notes
+              CupertinoListSection.insetGrouped(
+                children: [
+                  _field(_title,
+                      placeholder: 'Title',
+                      autofocus: _isNew,
+                      style: const TextStyle(fontSize: 17)),
+                  _field(_description,
+                      placeholder: 'Notes', minLines: 3, maxLines: 6),
+                ],
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _description,
-                minLines: 2,
-                maxLines: 5,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(labelText: 'Notes (optional)'),
+
+              // Date, time and repeat
+              CupertinoListSection.insetGrouped(
+                footer: _dueAt == null
+                    ? null
+                    : Text('You will be reminded 30 minutes before and when it is due.',
+                        style: AppText.secondary(context)),
+                children: [
+                  CupertinoListTile(
+                    leading: _IconBox(CupertinoIcons.calendar, CupertinoColors.systemRed),
+                    title: const Text('Date & Time'),
+                    subtitle: _dueAt == null
+                        ? null
+                        : Text(DateFormat('EEE d MMM yyyy, h:mm a').format(_dueAt!),
+                            style: TextStyle(color: blue)),
+                    trailing: CupertinoSwitch(
+                      value: _dueAt != null,
+                      onChanged: _toggleDate,
+                    ),
+                    onTap: _dueAt == null
+                        ? () => _toggleDate(true)
+                        : () => setState(() => _showPicker = !_showPicker),
+                  ),
+                  if (_dueAt != null && _showPicker)
+                    SizedBox(
+                      height: 200,
+                      child: CupertinoDatePicker(
+                        initialDateTime: _dueAt,
+                        mode: CupertinoDatePickerMode.dateAndTime,
+                        minuteInterval: 1,
+                        onDateTimeChanged: (d) => setState(() => _dueAt = d),
+                      ),
+                    ),
+                  CupertinoListTile(
+                    leading: _IconBox(CupertinoIcons.repeat, CupertinoColors.systemGrey),
+                    title: const Text('Repeat'),
+                    additionalInfo: Text(recurrenceLabel(_recurrence)),
+                    trailing: const CupertinoListTileChevron(),
+                    onTap: () async {
+                      final r = await pickFromSheet<Recurrence>(
+                        context,
+                        title: 'Repeat',
+                        options: Recurrence.values,
+                        label: recurrenceLabel,
+                        selected: _recurrence,
+                      );
+                      if (r != null) setState(() => _recurrence = r);
+                    },
+                  ),
+                ],
               ),
-              const SizedBox(height: 20),
-              Text('Priority', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 8),
-              SegmentedButton<Priority>(
-                segments: [
-                  for (final p in Priority.values)
-                    ButtonSegment(
-                      value: p,
-                      label: Text(priorityLabel(p)),
-                      icon: Icon(Icons.flag,
-                          color: priorityColor(p, Theme.of(context).colorScheme)),
+
+              // Priority + category
+              CupertinoListSection.insetGrouped(
+                footer: categories.isEmpty
+                    ? null
+                    : Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final c in categories.take(8))
+                            Pill(
+                              label: c,
+                              icon: CupertinoIcons.folder,
+                              onTap: null,
+                            ).withTap(() => setState(() => _category.text = c)),
+                        ],
+                      ),
+                children: [
+                  CupertinoListTile(
+                    leading: _IconBox(CupertinoIcons.exclamationmark,
+                        priorityColor(_priority)),
+                    title: const Text('Priority'),
+                    trailing: SizedBox(
+                      width: 190,
+                      child: CupertinoSlidingSegmentedControl<Priority>(
+                        groupValue: _priority,
+                        onValueChanged: (p) => setState(() => _priority = p!),
+                        children: {
+                          for (final p in Priority.values)
+                            p: Text(priorityLabel(p), style: const TextStyle(fontSize: 13)),
+                        },
+                      ),
+                    ),
+                  ),
+                  CupertinoListTile(
+                    leading: _IconBox(CupertinoIcons.folder_fill, CupertinoColors.systemIndigo),
+                    title: CupertinoTextField.borderless(
+                      controller: _category,
+                      placeholder: 'Category',
+                      padding: EdgeInsets.zero,
+                      textCapitalization: TextCapitalization.words,
+                    ),
+                  ),
+                ],
+              ),
+
+              // Tags
+              CupertinoListSection.insetGrouped(
+                header: const SectionHeader('Tags'),
+                footer: suggestedTags.isEmpty
+                    ? null
+                    : Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final t in suggestedTags.take(8))
+                            Pill(label: '#$t', icon: CupertinoIcons.add)
+                                .withTap(() => _addTag(t)),
+                        ],
+                      ),
+                children: [
+                  CupertinoListTile(
+                    leading: _IconBox(CupertinoIcons.number, CupertinoColors.systemBlue),
+                    title: CupertinoTextField.borderless(
+                      controller: _tagInput,
+                      placeholder: 'Add Tag',
+                      padding: EdgeInsets.zero,
+                      onSubmitted: _addTag,
+                    ),
+                    trailing: CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 0),
+                      onPressed: () => _addTag(_tagInput.text),
+                      child: const Icon(CupertinoIcons.add_circled, size: 22),
+                    ),
+                  ),
+                  if (_tags.isNotEmpty)
+                    Container(
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final t in _tags)
+                            _RemovableTag(
+                              label: '#$t',
+                              onRemove: () =>
+                                  setState(() => _tags = [..._tags]..remove(t)),
+                            ),
+                        ],
+                      ),
                     ),
                 ],
-                selected: {_priority},
-                onSelectionChanged: (s) => setState(() => _priority = s.first),
               ),
-              const SizedBox(height: 20),
-              Card(
-                margin: EdgeInsets.zero,
-                child: Column(
+
+              if (!_isNew)
+                CupertinoListSection.insetGrouped(
                   children: [
-                    ListTile(
-                      leading: const Icon(Icons.event),
-                      title: Text(_dueAt == null
-                          ? 'No deadline'
-                          : DateFormat.yMMMEd().add_jm().format(_dueAt!)),
-                      subtitle: _dueAt == null
-                          ? null
-                          : const Text('Reminders 30 min before and when due'),
-                      trailing: _dueAt == null
-                          ? null
-                          : IconButton(
-                              icon: const Icon(Icons.close),
-                              onPressed: () => setState(() => _dueAt = null),
-                            ),
-                      onTap: _pickDue,
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.repeat),
-                      title: DropdownButtonHideUnderline(
-                        child: DropdownButton<Recurrence>(
-                          value: _recurrence,
-                          isExpanded: true,
-                          items: [
-                            for (final r in Recurrence.values)
-                              DropdownMenuItem(value: r, child: Text(recurrenceLabel(r))),
-                          ],
-                          onChanged: (r) => setState(() => _recurrence = r!),
-                        ),
+                    CupertinoListTile(
+                      title: Center(
+                        child: Text('Delete Task',
+                            style: TextStyle(
+                                color: resolve(context, CupertinoColors.systemRed))),
                       ),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        deleteWithUndo(context, widget.task!);
+                      },
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 20),
-              Autocomplete<String>(
-                initialValue: TextEditingValue(text: _category.text),
-                optionsBuilder: (v) => categories.where(
-                    (c) => c.toLowerCase().contains(v.text.toLowerCase())),
-                onSelected: (c) => _category.text = c,
-                fieldViewBuilder: (context, controller, focus, onSubmit) {
-                  return TextField(
-                    controller: controller,
-                    focusNode: focus,
-                    onChanged: (v) => _category.text = v,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: const InputDecoration(
-                      labelText: 'Category (optional)',
-                      prefixIcon: Icon(Icons.folder_outlined),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _tagInput,
-                decoration: InputDecoration(
-                  labelText: 'Add tag',
-                  prefixIcon: const Icon(Icons.sell_outlined),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.add),
-                    onPressed: () => _addTag(_tagInput.text),
-                  ),
-                ),
-                onSubmitted: _addTag,
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final t in _tags)
-                    InputChip(
-                      label: Text('#$t'),
-                      onDeleted: () => setState(() => _tags = [..._tags]..remove(t)),
-                    ),
-                  for (final t in suggestedTags.take(8))
-                    ActionChip(
-                      avatar: const Icon(Icons.add, size: 14),
-                      label: Text('#$t'),
-                      onPressed: () => _addTag(t),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 32),
-              FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: const Icon(Icons.check),
-                label: Text(_isNew ? 'Create task' : 'Save changes'),
-              ),
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _field(
+    TextEditingController c, {
+    required String placeholder,
+    bool autofocus = false,
+    int minLines = 1,
+    int maxLines = 1,
+    TextStyle? style,
+  }) =>
+      CupertinoTextField.borderless(
+        controller: c,
+        placeholder: placeholder,
+        autofocus: autofocus,
+        minLines: minLines,
+        maxLines: maxLines,
+        style: style,
+        textCapitalization: TextCapitalization.sentences,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      );
+}
+
+/// iOS Settings-style coloured icon square.
+class _IconBox extends StatelessWidget {
+  const _IconBox(this.icon, this.color);
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: resolve(context, color),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Icon(icon, size: 17, color: CupertinoColors.white),
+      );
+}
+
+class _RemovableTag extends StatelessWidget {
+  const _RemovableTag({required this.label, required this.onRemove});
+  final String label;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final blue = resolve(context, CupertinoColors.systemBlue);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: TextStyle(color: blue, fontSize: 14)),
+          GestureDetector(
+            onTap: onRemove,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Icon(CupertinoIcons.xmark_circle_fill, size: 17, color: blue),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+extension on Pill {
+  /// A pill that acts as a plain button (no dropdown chevron).
+  Widget withTap(VoidCallback onTap) =>
+      GestureDetector(onTap: onTap, child: this);
 }

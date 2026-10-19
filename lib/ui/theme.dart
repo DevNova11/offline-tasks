@@ -1,29 +1,24 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 
 import '../models/task.dart';
 
+/// iOS look: Cupertino system colours, grouped backgrounds, SF-style type.
+/// Brightness follows the device setting (light / dark).
 class AppTheme {
-  static const _seed = Color(0xFF3D5AFE);
-
-  static ThemeData get light => _build(Brightness.light);
-  static ThemeData get dark => _build(Brightness.dark);
-
-  static ThemeData _build(Brightness b) {
-    final scheme = ColorScheme.fromSeed(seedColor: _seed, brightness: b);
-    return ThemeData(
-      colorScheme: scheme,
-      useMaterial3: true,
-      inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(),
-      ),
-    );
-  }
+  static const cupertino = CupertinoThemeData(
+    primaryColor: CupertinoColors.systemBlue,
+    scaffoldBackgroundColor: CupertinoColors.systemGroupedBackground,
+  );
 }
 
-Color priorityColor(Priority p, ColorScheme s) => switch (p) {
-      Priority.high => const Color(0xFFE53935),
-      Priority.medium => const Color(0xFFFB8C00),
-      Priority.low => const Color(0xFF43A047),
+/// Resolves a dynamic system colour for the current brightness.
+Color resolve(BuildContext context, Color c) =>
+    CupertinoDynamicColor.resolve(c, context);
+
+Color priorityColor(Priority p) => switch (p) {
+      Priority.high => CupertinoColors.systemRed,
+      Priority.medium => CupertinoColors.systemOrange,
+      Priority.low => CupertinoColors.systemGreen,
     };
 
 String priorityLabel(Priority p) => switch (p) {
@@ -32,9 +27,33 @@ String priorityLabel(Priority p) => switch (p) {
       Priority.low => 'Low',
     };
 
-String recurrenceLabel(Recurrence r) => switch (r) {
-      Recurrence.none => 'Does not repeat',
-      Recurrence.daily => 'Every day',
-      Recurrence.weekly => 'Every week',
-      Recurrence.monthly => 'Every month',
+/// Reminders-style "!!!" marks.
+String priorityMarks(Priority p) => switch (p) {
+      Priority.high => '!!!',
+      Priority.medium => '!!',
+      Priority.low => '!',
     };
+
+String recurrenceLabel(Recurrence r) => switch (r) {
+      Recurrence.none => 'Never',
+      Recurrence.daily => 'Daily',
+      Recurrence.weekly => 'Weekly',
+      Recurrence.monthly => 'Monthly',
+    };
+
+class AppText {
+  static TextStyle body(BuildContext c) =>
+      CupertinoTheme.of(c).textTheme.textStyle;
+
+  static TextStyle secondary(BuildContext c, {double size = 13}) => TextStyle(
+        fontSize: size,
+        color: resolve(c, CupertinoColors.secondaryLabel),
+        letterSpacing: -0.08,
+      );
+
+  static TextStyle sectionHeader(BuildContext c) => TextStyle(
+        fontSize: 13,
+        color: resolve(c, CupertinoColors.secondaryLabel),
+        letterSpacing: -0.08,
+      );
+}
