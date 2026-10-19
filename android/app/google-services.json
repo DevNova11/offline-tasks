@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "256448919516",
+    "project_id": "offline-tasks-gdg26",
+    "storage_bucket": "offline-tasks-gdg26.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:256448919516:android:814c784f0205cf7aa70119",
+        "android_client_info": {
+          "package_name": "com.gdg.offline_tasks"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBFFeU5v7VwTdpI8Ie7yDQP-fSWLWFB9l4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

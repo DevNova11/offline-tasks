@@ -1,0 +1,30 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "auth": {
+    "providers": {
+      "anonymous": true,
+      "emailPassword": true
+    }
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "offline-tasks-gdg26",
+          "appId": "1:256448919516:android:814c784f0205cf7aa70119",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "offline-tasks-gdg26",
+          "configurations": {
+            "android": "1:256448919516:android:814c784f0205cf7aa70119"
+          }
+        }
+      }
+    }
+  }
+}
